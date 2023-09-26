@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Webcam Stream</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body>
+    <div class="flex justify-center items-center min-h-screen bg-gray-100">
+        <div class="max-w-6xl p-4 bg-white rounded shadow-lg">
+            <h1 class="text-xl font-semibold mb-4">Webcam App</h1>
+            <div class="w-full border border-gray-300 flex justify-center items-center">
+        {% comment %} <video id="webcam-video" autoplay></video> {% endcomment %}
+        {% comment %} <img src="data:image/jpeg;base64,{{ frame }}" alt="Webcam Stream"> {% endcomment %}
+                <img src="{% url 'webcam_feed' %}" alt="Webcam Feed">
+                {% comment %} <img src="{% url 'webcam_feed' %}"> {% endcomment %}
+                {% comment %} <img src="{% url 'detect' %}"> {% endcomment %}
+            </div>
+        </div>
+    </div>
+    {% comment %} <script>
+        const videoElement = document.getElementById('webcam-video');
+
+        async function startWebcam() {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            videoElement.srcObject = stream;
+        }
+
+        startWebcam();
+    </script> {% endcomment %}
+</body>
+</html>
