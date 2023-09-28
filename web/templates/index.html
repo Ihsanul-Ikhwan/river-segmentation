@@ -1,0 +1,26 @@
+<html>
+
+<head>
+    <title>Real Time Face Recognition</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+
+<body>
+    {% comment %} <div class="flex justify-center items-center min-h-screen bg-gray-100"> {% endcomment %}
+    <div class="flex min-h-screen items-center justify-center bg-gradient-to-br from-slate-500 to-slate-800">
+        <div class="aspect-video max-w-7xl rounded bg-white p-4 shadow-lg">
+            <h1 class="mb-4 text-xl font-semibold">Webcam App</h1>
+            <div class="flex">
+            {% comment %} <img class="w-full border border-gray-300 rounded-xl" src="{% url 'detect' %}" alt="Webcam Feed"> {% endcomment %}
+            <img class="border border-gray-300 rounded-xl" src="{% url 'detect' %}" alt="Webcam Feed">
+            <div class="w-40 p-4">
+                <!-- Konten di sini -->
+                
+            </div>
+            </div>
+        </div>
+    </div>
+          
+</body>
+
+</html>

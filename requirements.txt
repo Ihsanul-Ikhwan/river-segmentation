@@ -1,0 +1,8 @@
+django==4.2.5
+flake8==6.1.0
+black==23.9.1
+ultralytics==8.0.187
+--index-url https://download.pytorch.org/whl/cu117
+torch 
+torchvision 
+torchaudio 
