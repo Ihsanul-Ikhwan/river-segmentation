@@ -32,12 +32,17 @@ cameras:
     name: "Demo Klamath River"
     source: data/samples/klamath.webm
     fps: 6
+    notify: false           # klip looping → alert level cuma noise
     detector: yolo
     detector_opts:
       weight_path: data/weights/water_yolov8n.pt
     calibration:
       datum_y: 950
       cm_per_px: 1.0
+    # sama seperti demo-sumatra: showcase deteksi, ambang tinggi dinonaktifkan
+    risk:
+      level_cm: [100000, 200000, 300000]
+      rise_cm_per_min: [1000, 2000, 4000]
 
   # Simulasi banjir bandang: air naik 280px dalam 3 menit (kurva t²)
   - id: sim-bandang
