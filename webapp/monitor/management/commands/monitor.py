@@ -47,6 +47,7 @@ class Command(BaseCommand):
         self.notifier = TelegramNotifier()
         snap_dir = settings.RIVERWATCH["SNAPSHOTS_DIR"]
         os.makedirs(snap_dir, exist_ok=True)
+        self._prune(keep_days=30)
 
         engine = Engine(cams, on_reading=self._on_event)
         writer = threading.Thread(target=self._writer_loop, daemon=True,
@@ -57,14 +58,40 @@ class Command(BaseCommand):
             f"RiverWatch monitor hidup: {len(cams)} kamera. Ctrl+C untuk berhenti."))
 
         try:
+            last_prune = time.time()
             while True:
                 time.sleep(2)
+                # prune harian otomatis (DB & snapshot tidak tumbuh selamanya)
+                if time.time() - last_prune > 86400:
+                    last_prune = time.time()
+                    self._prune(keep_days=30)
         except KeyboardInterrupt:
             self.stdout.write("Menghentikan engine...")
             engine.stop()
             self.stop.set()
             writer.join(timeout=5)
             self.stdout.write(self.style.SUCCESS("Bersih. Sampai jumpa."))
+
+    def _prune(self, keep_days: int = 30):
+        """Buang reading/alert lama + file snapshot basi."""
+        from django.utils import timezone
+        cutoff = timezone.now() - timezone.timedelta(days=keep_days)
+        d1 = Reading.objects.filter(ts__lt=cutoff).delete()[0]
+        d2 = Alert.objects.filter(ts__lt=cutoff).delete()[0]
+        snaps = 0
+        snap_dir = settings.RIVERWATCH["SNAPSHOTS_DIR"]
+        if os.path.isdir(snap_dir):
+            import glob
+            limit = time.time() - keep_days * 86400
+            for fp in glob.glob(os.path.join(snap_dir, "*.jpg")):
+                try:
+                    if os.path.getmtime(fp) < limit:
+                        os.remove(fp)
+                        snaps += 1
+                except OSError:
+                    pass
+        self.stdout.write(f"Prune >{keep_days}d: {d1} reading, {d2} alert, "
+                          f"{snaps} snapshot dibuang.")
 
     # ---------- engine callback (thread pipeline) ----------
     def _on_event(self, cam_cfg, stage, sample, rise, changed, jpeg):
@@ -86,6 +113,14 @@ class Command(BaseCommand):
                 self._handle(ev, last_saved, last_stage)
             except Exception as exc:  # noqa: BLE001
                 self.stderr.write(f"writer error: {exc}")
+            # rem bocor memori: kalau writer kewalahan (mis. Telegram lama),
+            # buang event lama TANPA jpeg — data stage tetap utuh di DB.
+            while self.q.qsize() > 256:
+                try:
+                    drop = self.q.get_nowait()
+                    drop["jpeg"] = b""
+                except queue.Empty:
+                    break
 
     def _handle(self, ev, last_saved, last_stage):
         cam = ev["cam"]

@@ -5,8 +5,10 @@ from pathlib import Path
 BASE_DIR = Path(__file__).resolve().parent.parent
 REPO_ROOT = BASE_DIR.parent
 
-SECRET_KEY = "django-insecure-riverwatch-dev-ganti-di-produksi"
-DEBUG = True
+SECRET_KEY = os.environ.get("RIVERWATCH_SECRET_KEY",
+                            "django-insecure-riverwatch-dev-ganti-di-produksi")
+# DEBUG default ON utk dev; set RIVERWATCH_DEBUG=0 utk produksi/kos-kan
+DEBUG = os.environ.get("RIVERWATCH_DEBUG", "1") == "1"
 ALLOWED_HOSTS = ["*"]
 
 INSTALLED_APPS = [

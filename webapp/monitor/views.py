@@ -69,14 +69,18 @@ def api_status(request):
 
 def api_readings(request):
     cid = request.GET.get("camera", "")
-    hours = float(request.GET.get("hours", 24))
+    try:
+        hours = min(max(float(request.GET.get("hours", 24)), 0.1), 24 * 30)
+    except ValueError:
+        hours = 24.0
     from django.utils import timezone
     since = timezone.now() - timezone.timedelta(hours=hours)
     qs = Reading.objects.filter(ts__gte=since)
     if cid:
         qs = qs.filter(camera_id=cid)
     data = list(qs.order_by("ts").values("ts", "camera_id", "level_cm",
-                                         "water_ratio", "rise_rate_cpm", "stage"))
+                                         "water_ratio", "rise_rate_cpm", "stage")
+                 [:20000])   # rem payload — jangan serahkan jutaan titik
     for d in data:
         d["ts"] = d["ts"].isoformat()
     return JsonResponse({"readings": data, "count": len(data)})

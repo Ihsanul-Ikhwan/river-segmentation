@@ -20,3 +20,4 @@ runs/
 
 # Tooling
 .DS_Store
+data/run/

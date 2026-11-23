@@ -94,7 +94,10 @@ class StreamSource:
     """RTSP/HTTP stream dengan auto-reconnect.
 
     Buffer dibuka sekecil mungkin (BUF_SIZE=1) supaya frame selalu
-    segar — penting untuk CCTV live.
+    segar — penting untuk CCTV live. Transport RTSP dipaksa TCP lewat
+    OPENCV_FFMPEG_CAPTURE_OPTIONS (banyak kamera Hikvision/Dahua macet
+    lewat UDP di balik NAT/switch), plus timeout baca 5 detik supaya
+    stream mati tidak menggantung selamanya.
     """
 
     kind = "stream"
@@ -102,10 +105,17 @@ class StreamSource:
     def __init__(self, url: str, reconnect_wait: float = 3.0):
         self.url = url
         self.reconnect_wait = reconnect_wait
+        import os
+        os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS",
+                              "rtsp_transport;tcp|stimeout;5000000")
         self._open()
 
     def _open(self):
         self.cap = cv2.VideoCapture(self.url, cv2.CAP_FFMPEG)
+        if not self.cap.isOpened():
+            self.cap.release()
+            self.cap = None
+            raise SourceError(f"Stream tidak bisa dibuka: {self.url}")
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
     def read(self):

@@ -66,9 +66,12 @@ class CameraConfig:
 def load_cameras(path: str) -> list[CameraConfig]:
     with open(path, encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
-    cams = []
+    cams, seen = [], set()
     for c in data.get("cameras", []):
         cfg = CameraConfig.from_dict(c)
+        if cfg.id in seen:
+            raise ValueError(f"ID kamera ganda: '{cfg.id}' — harus unik")
+        seen.add(cfg.id)
         src = cfg.source
         if (not src.isdigit()
                 and not src.startswith(("rtsp://", "rtmp://", "http://", "https://"))
@@ -77,6 +80,11 @@ def load_cameras(path: str) -> list[CameraConfig]:
         wp = cfg.detector_opts.get("weight_path")
         if wp and not os.path.isabs(wp):
             cfg.detector_opts["weight_path"] = os.path.join(REPO_ROOT, wp)
+        if (not cfg.source.isdigit()
+                and not cfg.source.startswith(("rtsp://", "rtmp://",
+                                               "http://", "https://"))
+                and not os.path.exists(cfg.source)):
+            log.error("Sumber kamera '%s' tidak ditemukan: %s", cfg.id, cfg.source)
         cams.append(cfg)
     if not cams:
         raise ValueError(f"Tidak ada kamera di {path}")
@@ -103,6 +111,9 @@ class CameraPipeline:
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
         self._last_seq = -1
+        self._last_cb = 0.0
+        self._last_pub = 0.0
+        self._stale_flag = False
         os.makedirs(FRAMES_DIR, exist_ok=True)
 
     def _build_detector(self):
@@ -122,58 +133,98 @@ class CameraPipeline:
     def _run(self):
         interval = 1.0 / max(self.cfg.fps, 0.1)
         fps_window: list[float] = []
+        err_streak = 0
         while not self._stop.is_set():
             t0 = time.time()
+            dt = 0.0
             frame, seq, ts = self.worker.get_frame()
             if frame is None or seq == self._last_seq:
+                self._watch_stale()
                 time.sleep(0.02)
                 continue
             self._last_seq = seq
 
-            det = self.detector.detect(frame)
-            # sanity gate: mask menutupi hampir seluruh frame = detektor
-            # kemungkinan blunder (langit/refleksi/heuristik lepas) → anggap
-            # tidak valid daripada memancing false alarm.
-            if det.mask is not None and det.water_ratio > 0.93:
-                det.mask = None
-                det.water_ratio = 0.0
-                det.extra["rejected"] = True
-            sample = self.tracker.update(det.mask, ts=ts)
-            rise = self.tracker.rise_rate_cm_per_min()
-            # Risk menilai tinggi air RELATIF baseline "normal" yang
-            # dipelajari otomatis (kecuali kamera dikalibrasi patok absolut,
-            # set relative_level=false di calibration).
-            rel = self.tracker.level_above_baseline(sample.level_cm) \
-                if self.tracker.relative_level else sample.level_cm
-            stage, changed = self.assessor.assess(rel, rise, ts=ts)
+            try:
+                det = self.detector.detect(frame)
+                # sanity gate: mask menutupi hampir seluruh frame = detektor
+                # kemungkinan blunder (langit/refleksi/heuristik lepas) → anggap
+                # tidak valid daripada memancing false alarm.
+                if det.mask is not None and det.water_ratio > 0.93:
+                    det.mask = None
+                    det.water_ratio = 0.0
+                    det.extra["rejected"] = True
+                sample = self.tracker.update(det.mask, ts=ts)
+                rise = self.tracker.rise_rate_cm_per_min()
+                # Risk menilai tinggi air RELATIF baseline "normal" yang
+                # dipelajari otomatis (kecuali kamera dikalibrasi patok absolut,
+                # set relative_level=false di calibration).
+                rel = self.tracker.level_above_baseline(sample.level_cm) \
+                    if self.tracker.relative_level else sample.level_cm
+                stage, changed = self.assessor.assess(rel, rise, ts=ts)
 
-            annotated = self._annotate(frame, det, sample, rise, stage)
-            self._publish(annotated, stage, sample, rise)
+                annotated = self._annotate(frame, det, sample, rise, stage)
+                jpeg = self._jpeg(annotated)
+                self._publish(jpeg, stage, sample, rise)
 
-            if self.on_reading:
-                self.on_reading(self.cfg, stage, sample, rise, changed,
-                                self._jpeg(annotated))
+                # hematkan CPU: callback (encode utk DB/Telegram) hanya saat
+                # stage berubah atau tiap ~2 detik, bukan tiap frame.
+                if self.on_reading and (changed
+                                        or ts - self._last_cb >= 2.0):
+                    self._last_cb = ts
+                    self.on_reading(self.cfg, stage, sample, rise, changed,
+                                    jpeg)
+                err_streak = 0
 
-            dt = time.time() - t0
-            fps_window.append(dt)
-            if len(fps_window) > 30:
-                fps_window.pop(0)
-            avg = sum(fps_window) / len(fps_window)
-            self.status = {
-                "stage": STAGE_NAME[stage],
-                "stage_code": stage,
-                "level_cm": sample.level_cm,
-                "level_above_normal": None if rel is None else round(rel, 1),
-                "baseline_cm": self.tracker._baseline,
-                "rise": rise,
-                "water_ratio": round(sample.water_ratio, 4),
-                "fps": round(1.0 / avg, 2) if avg else 0.0,
-                "detector": self.detector.name,
-                "error": self.worker.error,
-                "updated": ts,
-            }
+                dt = time.time() - t0
+                fps_window.append(dt)
+                if len(fps_window) > 30:
+                    fps_window.pop(0)
+                avg = sum(fps_window) / len(fps_window)
+                self.status = {
+                    "stage": STAGE_NAME[stage],
+                    "stage_code": stage,
+                    "level_cm": sample.level_cm,
+                    "level_above_normal": None if rel is None else round(rel, 1),
+                    "baseline_cm": self.tracker.baseline_cm,
+                    "rise": rise,
+                    "water_ratio": round(sample.water_ratio, 4),
+                    "fps": round(1.0 / avg, 2) if avg else 0.0,
+                    "detector": self.detector.name,
+                    "error": self.worker.error,
+                    "updated": ts,
+                }
+                self._last_pub = ts
+            except Exception as exc:  # noqa: BLE001 — satu frame rusak
+                err_streak += 1                          # tidak boleh mematikan
+                self.status = {**self.status, "error": f"analisis: {exc}"}
+                if err_streak in (1, 10) or err_streak % 100 == 0:
+                    log.exception("Kamera %s: frame analisis gagal (x%d)",
+                                  self.cfg.id, err_streak)
+                if err_streak >= 500:
+                    log.error("Kamera %s: 500 error beruntun — detektor mati "
+                              "terus, periksa weight/GPU", self.cfg.id)
+                    time.sleep(5)
+
             if dt < interval:
                 time.sleep(interval - dt)
+
+    def _watch_stale(self):
+        """Kalau frame berhenti mengalir >6 dtk, tandai status basi sekali."""
+        now = time.time()
+        if (not self._stale_flag
+                and now - self._last_pub > 6.0
+                and self._last_pub > 0):
+            self._stale_flag = True
+            self.status = {**self.status,
+                           "error": self.worker.error or "frame berhenti",
+                           "stale": True}
+            try:
+                with open(os.path.join(FRAMES_DIR,
+                                       f"{self.cfg.id}.status.json"),
+                          "w", encoding="utf-8") as f:
+                    json.dump(self.status, f)
+            except OSError:
+                pass
 
     def _annotate(self, frame, det, sample, rise, stage):
         out = self.detector.annotate(frame.copy(), det)
@@ -194,17 +245,17 @@ class CameraPipeline:
                                [int(cv2.IMWRITE_JPEG_QUALITY), quality])
         return buf.tobytes() if ok else b""
 
-    def _publish(self, annotated, stage, sample, rise):
+    def _publish(self, jpeg: bytes, stage, sample, rise):
         try:
-            jpeg = self._jpeg(annotated)
             if jpeg:
                 tmp = os.path.join(FRAMES_DIR, f"{self.cfg.id}.jpg.tmp")
                 dst = os.path.join(FRAMES_DIR, f"{self.cfg.id}.jpg")
                 with open(tmp, "wb") as f:
                     f.write(jpeg)
                 os.replace(tmp, dst)  # atomic → streamer tak baca separuh
+            self._stale_flag = False
             status = dict(self.status)
-            status.update({"stage_code": stage,
+            status.update({"stage_code": stage, "stale": False,
                            "level_cm": sample.level_cm, "rise": rise})
             with open(os.path.join(FRAMES_DIR, f"{self.cfg.id}.status.json"),
                       "w", encoding="utf-8") as f:

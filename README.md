@@ -6,7 +6,7 @@ sungai), dikembangkan jadi sistem pantau CCTV **real-time** dengan estimasi
 
 > **Banjir bandang ≠ air tinggi.** Yang mematikan adalah *kecepatan naik*.
 > Karena itu sistem ini bukan cuma ukur level, tapi **rise-rate (cm/menit)** —
-> air naik 15 cm dalam 10 menit langsung触发 SIAGA walau levelnya belum tinggi.
+> air naik 15 cm dalam 10 menit langsung memicu SIAGA walau levelnya belum tinggi.
 
 ---
 
@@ -22,6 +22,17 @@ sungai), dikembangkan jadi sistem pantau CCTV **real-time** dengan estimasi
 | **Alert Telegram** | Naik/turun tingkat → foto + pesan ke HP |
 | **REST API** | `/api/status`, `/api/readings`, `/api/alerts` |
 | **Logger DB** | Semua reading & alert tersimpan (SQLite WAL) untuk audit/tren |
+
+## 🚀 Mulai Cepat
+
+```bash
+./riverwatch.sh setup    # sekali: venv + deps + DB
+./riverwatch.sh start    # monitor + dashboard di :8095
+```
+
+📘 **Tutorial lengkap** (setup Windows/Linux, pasang CCTV RTSP, kalibrasi
+patok, Telegram, auto-start 24 jam, troubleshooting):
+**[`docs/TUTORIAL-ID.md`](docs/TUTORIAL-ID.md)**
 
 ## 🏗️ Arsitektur
 

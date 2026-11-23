@@ -44,12 +44,20 @@ class Calibration:
         h, w = shape[:2]
         if not self.roi_polygon:
             return np.ones((h, w), dtype=bool)
+        key = (h, w)
+        cached = getattr(self, "_roi_cache", None)
+        if cached is None:
+            cached = self._roi_cache = {}
+        if key in cached:
+            return cached[key]
         import cv2
 
         pts = np.array(self.roi_polygon, dtype=np.int32)
         m = np.zeros((h, w), dtype=np.uint8)
         cv2.fillPoly(m, [pts], 1)
-        return m.astype(bool)
+        out = m.astype(bool)
+        cached[key] = out
+        return out
 
 
 @dataclass
@@ -130,14 +138,24 @@ class LevelTracker:
             return None
         return level_cm - self._baseline
 
+    @property
+    def baseline_cm(self) -> float | None:
+        return self._baseline
+
     def _trim(self, now: float):
         cutoff = now - self.window_sec - 5
         while self._samples and self._samples[0].ts < cutoff:
             self._samples.popleft()
 
     def rise_rate_cm_per_min(self, lookback_sec: float = 120.0) -> float | None:
-        """Slope level air (cm/menit) via least-squares pada window lookback."""
-        now = time.time()
+        """Slope level air (cm/menit) via least-squares pada window lookback.
+
+        Acuan 'now' = timestamp SAMPEL TERAKHIR (bukan jam dinding) supaya
+        konsisten utk sumber dengan ts offline/replay.
+        """
+        if not self._samples:
+            return None
+        now = self._samples[-1].ts
         pts = [(s.ts, s.level_cm) for s in self._samples
                if s.level_cm is not None and s.ts >= now - lookback_sec]
         if len(pts) < 3:

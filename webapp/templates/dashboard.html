@@ -100,6 +100,14 @@ async function refreshStatus(){
     for (const c of d.cameras){
       const q = s => document.getElementById(`${s}-${c.camera_id}`);
       const badge = q('badge'); if(!badge) continue;
+      // kamera mati / frame berhenti → badge OFFLINE, jangan tampil status basi
+      if (!c.fresh || c.stale){
+        badge.textContent = c.stage_code === -1 ? 'OFFLINE' : 'SUSUT';
+        badge.className = 'badge sX';
+        q('lv').textContent = '—'; q('rr').textContent = '—';
+        q('wr').textContent = '—'; q('fps').textContent = '0';
+        continue;
+      }
       badge.textContent = c.stage; badge.className = 'badge s' + (c.stage_code>=0?c.stage_code:'X');
       q('lv').textContent = c.level_above_normal==null?(c.level_cm==null?'—':c.level_cm.toFixed(0)+' cm'):(c.level_above_normal>0?'+':'')+c.level_above_normal.toFixed(0)+' cm';
       q('rr').textContent = c.rise==null?'—':(c.rise>0?'+':'')+c.rise.toFixed(1);
