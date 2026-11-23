@@ -319,3 +319,6 @@ curl localhost:8095/api/status                     # API JSON
 
 API: `/api/status` · `/api/readings?camera=&hours=` · `/api/alerts` ·
 `/stream/<id>` (MJPEG) · `/snapshot/<id>` (JPEG terbaru) · `/admin` (Django).
+
+Akses `/admin` (buat akun sekali): `python manage.py createsuperuser`.
+Ganti `RIVERWATCH_SECRET_KEY` via env sebelum dipakai di jaringan terbuka.
