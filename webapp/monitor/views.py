@@ -15,17 +15,25 @@ from .models import Alert, Reading
 FRAMES = settings.RIVERWATCH["FRAMES_DIR"]
 
 
-def _cam_ids() -> list[str]:
-    """Daftar kamera dari yaml konfigurasi (sumber kebenaran)."""
+def _cams() -> list[dict]:
+    """Daftar kamera dari yaml konfigurasi (sumber kebenaran): id + nama."""
     import yaml
 
     path = settings.RIVERWATCH["CAMERAS_YAML"]
     try:
         with open(path, encoding="utf-8") as f:
             data = yaml.safe_load(f) or {}
-        return [str(c["id"]) for c in data.get("cameras", [])]
+        out = []
+        for c in data.get("cameras", []):
+            cid = str(c["id"])
+            out.append({"id": cid, "name": c.get("name", cid)})
+        return out
     except OSError:
         return []
+
+
+def _cam_ids() -> list[str]:
+    return [c["id"] for c in _cams()]
 
 
 def _read_status(camera_id: str) -> dict:
@@ -41,13 +49,15 @@ def _read_status(camera_id: str) -> dict:
 
 def dashboard(request):
     cams = []
-    ids = _cam_ids()
     latest_alert = Alert.objects.first()
-    for cid in ids:
+    for spec in _cams():
+        cid = spec["id"]
         st = _read_status(cid)
+        st.setdefault("name", spec["name"])
         last = Reading.objects.filter(camera_id=cid).first()
         cams.append({
             "id": cid,
+            "name": spec["name"],
             "status": st,
             "last_reading": last,
             "stream_url": f"/stream/{cid}",
