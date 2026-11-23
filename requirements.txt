@@ -1,8 +1,11 @@
-django==4.2.5
-flake8==6.1.0
-black==23.9.1
-ultralytics==8.0.187
---index-url https://download.pytorch.org/whl/cu117
-torch 
-torchvision 
-torchaudio 
+# === RiverWatch v2 — DGX Spark GB10 (aarch64, CUDA 13) ===
+# Install: pip install -r requirements.txt
+# torch/torchvision: pakai wheel CUDA resmi dari PyPI (support sm_121 / GB10).
+# Kalau belum ke-detect, pakai: pip install torch torchvision --index-url https://download.pytorch.org/whl/cu132
+django>=5.0,<6.0
+ultralytics>=8.3
+opencv-python-headless>=4.9
+numpy>=1.26
+requests>=2.31
+pyyaml>=6.0
+psutil>=5.9

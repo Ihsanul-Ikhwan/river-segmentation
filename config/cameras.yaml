@@ -1,0 +1,74 @@
+# =====================================================================
+# RiverWatch v2 — konfigurasi kamera
+# id        : unik, dipakai utk nama file frame & DB
+# source    : path file video | angka (webcam) | rtsp://...
+# detector  : heuristic | yolo  (yolo: weight di data/weights/)
+# fps       : batas laju analisis (hemat GPU utk CCTV 25/30fps)
+# notify    : false = catat alert ke DB tapi jangan kirim Telegram
+# calibration:
+#   datum_y   : baris pixel = 0 cm. 0 → pakai dasar frame.
+#   cm_per_px : skala vertikal (kalibrasi dgn patok meteran nyata).
+#   roi_polygon : (opsional) polygon area sungai saja.
+# risk      : ambang [WASPADA, SIAGA, BAHAYA] utk level_cm & rise cm/menit
+# =====================================================================
+cameras:
+  - id: demo-sumatra
+    name: "Demo Sungai Bah Bolon (Sumut)"
+    source: data/samples/bahorok_sumatra.webm
+    fps: 6
+    detector: yolo
+    detector_opts:
+      weight_path: data/weights/water_yolov8n.pt
+    calibration:
+      datum_y: 900
+      cm_per_px: 1.0
+    # klip handheld & looping → garis air melompat, tidak cocok utk demo
+    # level. Ambang tinggi = showcase deteksi saja.
+    risk:
+      level_cm: [100000, 200000, 300000]
+      rise_cm_per_min: [1000, 2000, 4000]
+
+  - id: demo-klamath
+    name: "Demo Klamath River"
+    source: data/samples/klamath.webm
+    fps: 6
+    detector: yolo
+    detector_opts:
+      weight_path: data/weights/water_yolov8n.pt
+    calibration:
+      datum_y: 950
+      cm_per_px: 1.0
+
+  # Simulasi banjir bandang: air naik 280px dalam 3 menit (kurva t²)
+  - id: sim-bandang
+    name: "SIMULASI Banjir Bandang"
+    source: data/samples/flood_sim.mp4
+    loop: true
+    fps: 6
+    notify: false           # demo berulang → jangan spam Telegram
+    detector: yolo
+    detector_opts:
+      weight_path: data/weights/water_yolov8n.pt
+      conf: 0.25
+    calibration:
+      datum_y: 700          # waterline mulai ~594px → level awal ±106cm
+      cm_per_px: 1.0
+    risk:
+      level_cm: [120, 200, 255]
+      rise_cm_per_min: [50, 100, 150]
+
+  # Contoh kamera CCTV beneran (RTSP) — aktifkan kalau sudah ada:
+  # - id: cctv-01
+  #   name: "CCTV Sungai Ciliwung"
+  #   source: rtsp://user:pass@192.168.1.50:554/Streaming/Channels/101
+  #   fps: 5
+  #   detector: yolo
+  #   detector_opts:
+  #     weight_path: data/weights/water_yolov8n.pt
+  #   calibration:
+  #     datum_y: 720
+  #     cm_per_px: 1.35
+  #     roi_polygon: [[200, 300], [1080, 280], [1280, 720], [0, 720]]
+  #   risk:
+  #     level_cm: [80, 180, 300]
+  #     rise_cm_per_min: [8, 20, 40]

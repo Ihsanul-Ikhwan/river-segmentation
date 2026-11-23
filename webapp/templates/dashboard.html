@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RiverWatch — Monitor Sungai & Banjir Bandang</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b1220; --card:#111a2c; --line:#1e2b44; --txt:#dbe4f3; --mut:#7c8bab;
+    --ok:#34d399; --warn:#fbbf24; --siaga:#fb923c; --bahaya:#f87171;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{background:var(--bg);color:var(--txt);font:14px/1.5 system-ui,Segoe UI,Roboto,sans-serif;padding:20px}
+  h1{font-size:20px;letter-spacing:.5px} h1 span{color:var(--ok)}
+  .sub{color:var(--mut);margin:2px 0 18px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(420px,1fr));gap:16px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+  .card header{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--line)}
+  .camname{font-weight:600}
+  .badge{padding:3px 10px;border-radius:99px;font-size:12px;font-weight:700}
+  .s0{background:#06382b;color:var(--ok)} .s1{background:#3a2e05;color:var(--warn)}
+  .s2{background:#3b2008;color:var(--siaga)} .s3{background:#400d0d;color:var(--bahaya)}
+  .sX{background:#222;color:#999}
+  .frame{width:100%;aspect-ratio:16/9;background:#000;object-fit:cover;display:block}
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line)}
+  .m{background:var(--card);padding:10px 12px}
+  .m b{font-size:18px;display:block} .m span{color:var(--mut);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  section{margin-top:22px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--mut);font-weight:600;font-size:11px;text-transform:uppercase}
+  .alerts{max-height:320px;overflow:auto}
+  .a3{color:var(--bahaya)} .a2{color:var(--siaga)} .a1{color:var(--warn)} .a0{color:var(--ok)}
+  .foot{color:var(--mut);margin-top:24px;font-size:12px}
+</style>
+</head>
+<body>
+  <h1>🌊 <span>RiverWatch</span> v2</h1>
+  <div class="sub">Pemantauan sungai via CCTV — segmentasi air (YOLO) · estimasi tinggi muka air · deteksi banjir bandang (rise-rate)</div>
+
+  <div class="grid">
+    {% for c in cameras %}
+    <div class="card">
+      <header>
+        <div class="camname">{{ c.status.name|default:c.id }} <small style="color:var(--mut)">{{ c.id }}</small></div>
+        <div class="badge s{{ c.status.stage_code }}" id="badge-{{ c.id }}">{{ c.status.stage }}</div>
+      </header>
+      <img class="frame" src="{{ c.stream_url }}" alt="stream {{ c.id }}">
+      <div class="metrics">
+        <div class="m"><b id="lv-{{ c.id }}">—</b><span>Level air</span></div>
+        <div class="m"><b id="rr-{{ c.id }}">—</b><span>Tren /menit</span></div>
+        <div class="m"><b id="wr-{{ c.id }}">—</b><span>Cakupan air</span></div>
+        <div class="m"><b id="fps-{{ c.id }}">—</b><span>FPS analisis</span></div>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+
+  <section>
+    <div class="panel">
+      <b>Tren 3 jam terakhir</b> <small style="color:var(--mut)">(cm & rise-rate per kamera — auto-refresh 10 dtk)</small>
+      <canvas id="chart" height="90"></canvas>
+    </div>
+  </section>
+
+  <section>
+    <div class="panel alerts">
+      <b>Peringatan terakhir</b>
+      <table>
+        <thead><tr><th>Waktu</th><th>Kamera</th><th>Status</th><th>Pesan</th><th>Telegram</th></tr></thead>
+        <tbody id="alert-rows">
+        {% for a in recent_alerts %}
+          <tr>
+            <td>{{ a.ts|date:"d M H:i:s" }}</td>
+            <td>{{ a.camera_id }}</td>
+            <td class="a{{ a.stage }}">{{ a.get_stage_display }}</td>
+            <td>{{ a.message }}</td>
+            <td>{{ a.notified|yesno:"✓,✗" }}</td>
+          </tr>
+        {% empty %}
+          <tr><td colspan="5" style="color:var(--mut)">Belum ada alert — jalankan <code>python manage.py monitor</code>.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <div class="foot">Engine: <code>manage.py monitor</code> · Konfigurasi: <code>config/cameras.yaml</code> · API: <code>/api/status /api/readings /api/alerts</code></div>
+
+<script>
+const CAMS = [{% for c in cameras %}'{{ c.id }}',{% endfor %}];
+const STAGE_NAMES = ['NORMAL','WASPADA','SIAGA','BAHAYA'];
+const COLORS = ['#34d399','#fbbf24','#fb923c','#f87171'];
+
+async function refreshStatus(){
+  try{
+    const r = await fetch('/api/status'); const d = await r.json();
+    for (const c of d.cameras){
+      const q = s => document.getElementById(`${s}-${c.camera_id}`);
+      const badge = q('badge'); if(!badge) continue;
+      badge.textContent = c.stage; badge.className = 'badge s' + (c.stage_code>=0?c.stage_code:'X');
+      q('lv').textContent = c.level_above_normal==null?(c.level_cm==null?'—':c.level_cm.toFixed(0)+' cm'):(c.level_above_normal>0?'+':'')+c.level_above_normal.toFixed(0)+' cm';
+      q('rr').textContent = c.rise==null?'—':(c.rise>0?'+':'')+c.rise.toFixed(1);
+      q('wr').textContent = c.water_ratio==null?'—':(c.water_ratio*100).toFixed(0)+'%';
+      q('fps').textContent = c.fps??'—';
+    }
+  }catch(e){}
+}
+
+const ctx = document.getElementById('chart');
+const chart = new Chart(ctx, {type:'line', data:{datasets:[]},
+  options:{responsive:true, animation:false, interaction:{mode:'nearest'},
+    scales:{x:{type:'linear', ticks:{callback:v=>new Date(v).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}), color:'#7c8bab'}, grid:{color:'#1e2b44'}},
+            y:{title:{display:true,text:'cm',color:'#7c8bab'}, color:'#7c8bab', grid:{color:'#1e2b44'}}}}});
+
+async function refreshChart(){
+  try{
+    const r = await fetch('/api/readings?hours=3'); const d = await r.json();
+    const byCam = {};
+    for (const p of d.readings){ (byCam[p.camera_id] ||= []).push(p); }
+    chart.data.datasets = Object.entries(byCam).map(([cam, pts], i) => ({
+      label: cam, data: pts.filter(p=>p.level_cm!=null).map(p=>({x:Date.parse(p.ts), y:p.level_cm})),
+      borderColor: COLORS[i%4], tension:.3, pointRadius:0, borderWidth:2, fill:false
+    }));
+    chart.update('none');
+  }catch(e){}
+}
+
+refreshStatus(); refreshChart();
+setInterval(refreshStatus, 3000);
+setInterval(refreshChart, 10000);
+</script>
+</body>
+</html>
